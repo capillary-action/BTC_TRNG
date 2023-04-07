@@ -1,0 +1,90 @@
+import hashlib
+import requests
+import json
+import os
+import matplotlib.pyplot as plt
+import subprocess
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+
+def get_block_data(block_height):
+    url = f'https://blockchain.info/block-height/{block_height}?format=json'
+    response = requests.get(url)
+    data = json.loads(response.text)
+    block_data = data['blocks'][0]
+    return block_data['hash'], block_data['nonce'], block_data['mrkl_root']
+
+def generate_seed(block_height):
+    block_hash, nonce, merkle_root = get_block_data(block_height)
+    combined_data = f"{block_hash}{nonce}{merkle_root}"
+    sha256 = hashlib.sha256()
+    sha256.update(combined_data.encode('utf-8'))
+    seed = sha256.digest()
+    return seed
+
+def generate_random_numbers(seed, count):
+    backend = default_backend()
+    salt = os.urandom(16)  # Generate a random salt
+    hkdf = HKDF(
+        algorithm=hashes.SHA256(),
+        length=count * 4,
+        salt=salt,
+        info=b"Bitcoin Entropy Random Numbers",
+        backend=backend,
+    )
+    random_bytes = hkdf.derive(seed)
+    random_numbers = [int.from_bytes(random_bytes[i:i + 4], 'big') / (2**32 - 1) for i in range(0, count * 4, 4)]
+    return random_numbers
+
+def scatter_and_histogram_plot(random_numbers_x, random_numbers_y):
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+
+    # Scatter plot
+    ax1.scatter(random_numbers_x, random_numbers_y, s=10, alpha=0.6)
+    ax1.set_xlabel('Random Number X')
+    ax1.set_ylabel('Random Number Y')
+    ax1.set_title('Scatter Plot of Random Points')
+
+    # Histogram plot
+    ax2.hist(random_numbers_x + random_numbers_y, bins=50, alpha=0.6)
+    ax2.set_xlabel('Random Number Value')
+    ax2.set_ylabel('Frequency')
+    ax2.set_title('Histogram of Random Numbers')
+
+    plt.tight_layout()
+    plt.show()
+
+def write_binary_file(filename, random_numbers):
+    with open(filename, 'wb') as file:
+        for number in random_numbers:
+            int_number = int(number * (2**32 - 1))
+            file.write(int_number.to_bytes(4, 'big'))
+
+def convert_to_text_file(input_file, output_file):
+    subprocess.run(['xxd', '-b', input_file, '>', output_file], shell=True)
+
+
+def main():
+    block_height = 700000  # Example block height
+    seed = generate_seed(block_height)
+    print(f"Seed from block {block_height}: {seed.hex()}")
+
+    random_numbers_x = generate_random_numbers(seed, 1000)
+    seed = generate_seed(block_height + 1)  # Use a different block for Y coordinates
+    random_numbers_y = generate_random_numbers(seed, 1000)
+
+    scatter_and_histogram_plot(random_numbers_x, random_numbers_y)
+
+    # Write random_numbers_x and random_numbers_y to binary files
+    write_binary_file('random_numbers_x.bin', random_numbers_x)
+    write_binary_file('random_numbers_y.bin', random_numbers_y)
+
+    # Convert binary files to text files with binary digits
+    convert_to_text_file('random_numbers_x.bin', 'random_numbers_x.txt')
+    convert_to_text_file('random_numbers_y.bin', 'random_numbers_y.txt')
+
+if __name__ == "__main__":
+    main()
+
